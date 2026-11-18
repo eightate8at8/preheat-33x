@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>33X Preheat</title>
+<title>Preheat33X</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="33X Preheat">
+<meta name="apple-mobile-web-app-title" content="Preheat33X">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="theme-color" content="#eef1f4">
 <link rel="apple-touch-icon" href="icon.png">
@@ -26,7 +26,7 @@
 html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);-webkit-text-size-adjust:100%}
 main{max-width:460px;margin:0 auto;padding:max(12px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(24px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));display:flex;flex-direction:column;gap:12px}
 header{display:flex;align-items:baseline;justify-content:space-between;gap:8px;padding-top:4px}
-h1{font-size:15px;letter-spacing:.08em;text-transform:uppercase;margin:0;color:var(--muted);font-weight:600}
+h1{font-size:15px;letter-spacing:.04em;margin:0;color:var(--muted);font-weight:600}
 .pills{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 .pill{font-size:12px;padding:3px 9px;border-radius:999px;background:var(--panel);border:1px solid var(--line);color:var(--muted);white-space:nowrap}
 .pill.ok{color:var(--ok);border-color:currentColor}.pill.bad{color:var(--bad);border-color:currentColor}.pill.warn{color:var(--warn);border-color:currentColor}
@@ -37,7 +37,7 @@ h1{font-size:15px;letter-spacing:.08em;text-transform:uppercase;margin:0;color:v
 .status.on .state{color:var(--heat)} .status.off .state{color:var(--cold)}
 .rem{font-family:var(--mono);font-size:22px;font-variant-numeric:tabular-nums}
 .sub{font-size:13px;color:var(--muted)}
-.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
 button{font:inherit;font-size:17px;font-weight:600;border-radius:12px;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:14px 8px;cursor:pointer;-webkit-tap-highlight-color:transparent}
 button:active{transform:scale(.98)}
 button:focus-visible{outline:3px solid var(--cold);outline-offset:2px}
@@ -46,18 +46,20 @@ button.stop{background:var(--panel);border:2px solid var(--bad);color:var(--bad)
 button.wide{width:100%}
 button:disabled{opacity:.45}
 .row{display:flex;gap:8px}.row>*{flex:1}
-.msg{font-size:14px;min-height:20px;color:var(--muted)}
+.msg{margin:0;font-size:14px;min-height:20px;color:var(--muted)}
 .msg.ok{color:var(--ok)}.msg.bad{color:var(--bad)}
 .log{list-style:none;margin:0;padding:0;font-size:13px}
 .log li{display:flex;gap:10px;padding:6px 0;border-top:1px solid var(--line)}
 .log li:first-child{border-top:0}
 .log time{font-family:var(--mono);color:var(--muted);min-width:96px;font-variant-numeric:tabular-nums}
 .label{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
-input{font:inherit;font-size:16px;width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);margin:4px 0 12px}
+input,select{font:inherit;font-size:16px;width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);margin:4px 0 12px}
 .bars{display:inline-flex;gap:2px;align-items:flex-end;height:12px;vertical-align:-1px;margin-right:4px}
 .bars i{width:3px;background:var(--line);border-radius:1px}.bars i.f{background:var(--ink)}
 footer{font-size:12px;color:var(--muted);text-align:center;display:flex;gap:12px;justify-content:center}
 footer button{font-size:12px;padding:4px 8px;font-weight:500}
+#app{display:flex;flex-direction:column;gap:12px}
+.sched-on{font-size:15px;font-weight:600;padding:10px 12px;border-radius:10px;background:var(--heat-soft);border:1px solid var(--heat)}
 [hidden]{display:none!important}
 @media (prefers-reduced-motion:reduce){button:active{transform:none}}
 </style>
@@ -65,8 +67,8 @@ footer button{font-size:12px;padding:4px 8px;font-weight:500}
 <body>
 <main>
   <header>
-    <h1>33X Preheat</h1>
-    <div class="pills"><span id="pBroker" class="pill">connecting</span><span id="pBox" class="pill">box ?</span></div>
+    <h1>Preheat33X</h1>
+    <div class="pills"><span id="pBroker" class="pill">EMQX connecting</span><span id="pBox" class="pill">Hangar ?</span></div>
   </header>
 
   <section id="login" class="panel" hidden>
@@ -94,10 +96,30 @@ footer button{font-size:12px;padding:4px 8px;font-weight:500}
         <button class="go" data-cmd="on 60">1 hr</button>
         <button class="go" data-cmd="on 120">2 hr</button>
         <button class="go" data-cmd="on 240">4 hr</button>
+        <button class="go" data-cmd="on 360">6 hr</button>
       </div>
       <button class="wide" data-cmd="extend 30" id="extendBtn">+30 min</button>
       <button class="stop" data-cmd="off">Turn OFF</button>
       <p id="cmdMsg" class="msg" role="status" aria-live="polite"></p>
+    </section>
+
+    <section class="panel" style="display:flex;flex-direction:column;gap:8px">
+      <p class="label" style="margin:0">Schedule</p>
+      <div id="schedNow" hidden>
+        <div id="schedText" class="sched-on"></div>
+        <button class="wide" data-cmd="cancel" style="margin-top:8px">Cancel schedule</button>
+      </div>
+      <form id="schedForm">
+        <label for="readyAt">Warm by</label>
+        <input id="readyAt" type="datetime-local" required>
+        <label for="schedDur">Heat for</label>
+        <select id="schedDur">
+          <option value="60">1 hr</option><option value="120">2 hr</option><option value="180" selected>3 hr</option>
+          <option value="240">4 hr</option><option value="300">5 hr</option><option value="360">6 hr</option>
+        </select>
+        <p class="sub" id="schedPreview" style="margin:0 0 10px"></p>
+        <button class="go wide" type="submit" id="schedBtn">Set schedule</button>
+      </form>
     </section>
 
     <section class="panel">
@@ -130,19 +152,19 @@ function pill(el, text, cls){ el.textContent = text; el.className = "pill " + (c
 
 function connect(login){
   if (client) { client.end(true); client = null; }
-  pill($("pBroker"), "connecting", "warn");
+  pill($("pBroker"), "EMQX connecting", "warn");
   client = mqtt.connect(BROKER, {
     username: login.u, password: login.p,
     clientId: "phone-" + Math.random().toString(16).slice(2, 10),
     clean: true, reconnectPeriod: 4000, connectTimeout: 15000, keepalive: 60
   });
   client.on("connect", () => {
-    pill($("pBroker"), "connected", "ok");
+    pill($("pBroker"), "EMQX connected", "ok");
     $("login").hidden = true; $("app").hidden = false;
     client.subscribe([BASE + "/state", BASE + "/online"], { qos: 1 });
   });
-  client.on("reconnect", () => pill($("pBroker"), "reconnecting", "warn"));
-  client.on("offline", () => pill($("pBroker"), "no internet", "bad"));
+  client.on("reconnect", () => pill($("pBroker"), "EMQX reconnecting", "warn"));
+  client.on("offline", () => pill($("pBroker"), "EMQX: no internet", "bad"));
   client.on("error", err => {
     const authFail = /auth|not authorized|bad user/i.test(String(err && err.message));
     if (authFail) {
@@ -150,7 +172,7 @@ function connect(login){
       $("app").hidden = true; $("login").hidden = false;
       $("loginMsg").textContent = "Username or password was not accepted. Check them in EMQX and try again.";
       $("loginMsg").className = "msg bad";
-      pill($("pBroker"), "signed out", "bad");
+      pill($("pBroker"), "EMQX signed out", "bad");
     }
   });
   client.on("message", (topic, buf) => {
@@ -160,7 +182,7 @@ function connect(login){
       try { last = JSON.parse(s); lastAt = Date.now(); } catch(e){ return; }
       if (pending && last.ack === pending.id) {
         clearTimeout(pending.timer);
-        setMsg("Confirmed by the hangar.", "ok");
+        setMsg("Confirmed by the hangar at " + clock(Date.now()) + ".", "ok");
         pending = null; setButtons(true);
       }
       render();
@@ -169,17 +191,17 @@ function connect(login){
 }
 
 function setMsg(t, cls){ $("cmdMsg").textContent = t; $("cmdMsg").className = "msg " + (cls || ""); }
-function setButtons(on){ document.querySelectorAll("button[data-cmd]").forEach(b => b.disabled = !on); }
+function setButtons(on){ document.querySelectorAll("button[data-cmd], #schedBtn").forEach(b => b.disabled = !on); }
 
 function send(cmd){
   if (!client || !client.connected) { setMsg("Not connected to the internet relay yet. Try again in a moment.", "bad"); return; }
   const id = Math.random().toString(36).slice(2, 8);
-  client.publish(BASE + "/cmd", cmd + " #" + id, { qos: 1, retain: false });
+  client.publish(BASE + "/cmd", cmd + " #" + id + " @" + Math.floor(Date.now() / 1000), { qos: 1, retain: false });
   setButtons(false);
   setMsg("Sent. Waiting for the hangar to confirm...");
   pending = { id, timer: setTimeout(() => {
     pending = null; setButtons(true);
-    setMsg("No confirmation after 45 seconds. The hangar box may be offline, so the command was not applied. It will not run later on its own.", "bad");
+    setMsg("No confirmation after 45 seconds. The hangar box is probably offline, so the command most likely did not reach it, and it will not run later on its own. Check the status above before trying again.", "bad");
   }, 45000) };
 }
 
@@ -204,11 +226,27 @@ function signal(csq){
   return { n, word: ["very weak","weak","fair","good","excellent"][n] };
 }
 function bars(n){ return '<span class="bars" aria-hidden="true">' + [5,7,9,12].map((h,i)=>`<i style="height:${h}px" class="${i<n?'f':''}"></i>`).join("") + "</span>"; }
+function dayTime(ms){ return new Date(ms).toLocaleString([], {weekday:"short", hour:"numeric", minute:"2-digit"}); }
+function pad(n){ return String(n).padStart(2, "0"); }
+function toLocalInput(d){ return d.getFullYear() + "-" + pad(d.getMonth()+1) + "-" + pad(d.getDate()) + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes()); }
+function schedPlan(){
+  const ready = new Date($("readyAt").value).getTime();
+  const mins = +$("schedDur").value;
+  return { ready, mins, start: ready - mins * 60000 };
+}
+function updatePreview(){
+  const p = schedPlan();
+  if (!isFinite(p.ready)) { $("schedPreview").textContent = ""; return; }
+  if (p.start < Date.now() + 60000) { $("schedPreview").textContent = "Too soon for that heat time. Pick a later time, or use the buttons above."; return; }
+  if (p.start > Date.now() + 7 * 86400000) { $("schedPreview").textContent = "Schedules can be up to 7 days ahead."; return; }
+  $("schedPreview").textContent = "Turns on " + dayTime(p.start) + ", off at " + clock(p.ready) + ".";
+}
+function clock(ms){ return new Date(ms).toLocaleTimeString([], {hour:"numeric", minute:"2-digit"}); }
 function esc(t){ return String(t).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
 function render(){
-  if (boxOnline === true) pill($("pBox"), "hangar online", "ok");
-  else if (boxOnline === false) pill($("pBox"), "hangar offline", "bad");
+  if (boxOnline === true) pill($("pBox"), "Hangar online", "ok");
+  else if (boxOnline === false) pill($("pBox"), "Hangar offline", "bad");
   if (!last) return;
   const rem = remainingNow();
   const on = last.on && rem > 0;
@@ -216,12 +254,22 @@ function render(){
   st.className = "panel status " + (on ? "on" : "off");
   $("state").textContent = on ? "HEAT ON" : "HEAT OFF";
   $("rem").textContent = on ? fmtHM(rem) + " left" : "";
-  $("seen").textContent = "Last report from hangar " + ago(stateTimeMs());
+  $("seen").textContent = "Last report from hangar " + ago(stateTimeMs()) + " (" + clock(stateTimeMs()) + ")";
   $("extendBtn").textContent = on ? "+30 min" : "On 30 min";
   const sig = signal(last.csq);
+  const csqAt = (last.csqAge != null && last.csqAge >= 0) ? stateTimeMs() - last.csqAge * 1000 : 0;
   $("health").innerHTML = bars(sig.n) + "Cell signal " + sig.word + (last.csq !== 99 ? " (" + last.csq + "/31)" : "") +
+    (csqAt ? " &middot; checked " + clock(csqAt) : "") +
+    "<br>Status updated " + clock(stateTimeMs()) +
     "<br>Box up " + Math.floor(last.up/3600) + " hr " + Math.floor((last.up%3600)/60) + " min &middot; max run " + (last.max/60) + " hr";
   $("fw").textContent = "fw " + (last.fw || "?");
+  if (last.sched > 0) {
+    const start = last.sched * 1000, end = start + last.schedMin * 60000;
+    $("schedText").textContent = "On " + dayTime(start) + " for " + (last.schedMin / 60) + " hr (warm by " + clock(end) + ")";
+    $("schedNow").hidden = false; $("schedBtn").textContent = "Replace schedule";
+  } else {
+    $("schedNow").hidden = true; $("schedBtn").textContent = "Set schedule";
+  }
   const items = (last.log || []).map(l => {
     const i = l.indexOf("|"); const t = +l.slice(0, i); const m = l.slice(i+1);
     const when = t > 1600000000 ? new Date(t*1000).toLocaleString([], {month:"short", day:"numeric", hour:"numeric", minute:"2-digit"}) : "--";
@@ -232,11 +280,26 @@ function render(){
 
 document.querySelectorAll("button[data-cmd]").forEach(b => b.addEventListener("click", () => send(b.dataset.cmd)));
 $("refresh").addEventListener("click", () => send("ping"));
-$("signout").addEventListener("click", () => { saveLogin(null); if (client) client.end(true); client = null; $("app").hidden = true; $("login").hidden = false; pill($("pBroker"), "signed out", ""); });
+$("signout").addEventListener("click", () => { saveLogin(null); if (client) client.end(true); client = null; $("app").hidden = true; $("login").hidden = false; pill($("pBroker"), "EMQX signed out", ""); });
 $("loginForm").addEventListener("submit", e => {
   e.preventDefault();
   const login = { u: $("u").value.trim(), p: $("pw").value };
   saveLogin(login); $("loginMsg").textContent = ""; connect(login);
+});
+(function initSchedule(){
+  const d = new Date(); d.setSeconds(0, 0);
+  const next = new Date(d); next.setHours(8, 0, 0, 0);
+  if (next.getTime() - d.getTime() < 4 * 3600000) next.setDate(next.getDate() + 1);
+  $("readyAt").value = toLocalInput(next);
+  $("readyAt").addEventListener("input", updatePreview);
+  $("schedDur").addEventListener("change", updatePreview);
+  updatePreview();
+})();
+$("schedForm").addEventListener("submit", e => {
+  e.preventDefault();
+  const p = schedPlan();
+  if (!isFinite(p.ready) || p.start < Date.now() + 60000 || p.start > Date.now() + 7 * 86400000) { updatePreview(); return; }
+  send("sched " + Math.floor(p.start / 1000) + " " + p.mins);
 });
 document.addEventListener("visibilitychange", () => { if (!document.hidden && client && !client.connected) client.reconnect(); });
 setInterval(render, 1000);
