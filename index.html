@@ -103,8 +103,8 @@ footer button{font-size:12px;padding:4px 8px;font-weight:500}
         <button class="go" data-cmd="on 240">4 hr</button>
         <button class="go" data-cmd="on 360">6 hr</button>
       </div>
-      <button class="wide" data-cmd="extend 30" id="extendBtn">+30 min</button>
-      <button class="stop" data-cmd="off">Turn OFF</button>
+      <button class="wide" data-cmd="extend 30" id="extendBtn" hidden>+30 min</button>
+      <button class="stop" data-cmd="off" id="offBtn">Turn OFF</button>
       <p id="cmdMsg" class="msg" role="status" aria-live="polite"></p>
     </section>
 
@@ -147,6 +147,7 @@ const KEY = "preheat-login";
 
 const $ = id => document.getElementById(id);
 let client = null, last = null, lastAt = 0, lastRetained = true, boxOnline = null, pending = null;
+let knownOn = false, knownOff = false;   // fresh, confirmed state from the hangar
 
 function loadLogin(){ try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch(e){ return null; } }
 function saveLogin(v){ try { v ? localStorage.setItem(KEY, JSON.stringify(v)) : localStorage.removeItem(KEY); } catch(e){} }
@@ -227,18 +228,26 @@ function validState(o){
 }
 
 function setMsg(t, cls){ $("cmdMsg").textContent = t; $("cmdMsg").className = "msg " + (cls || ""); }
-function setButtons(on){ document.querySelectorAll("button[data-cmd], #schedBtn, .slist button").forEach(b => b.disabled = !on); }
+function setButtons(on){ document.querySelectorAll("button[data-cmd], #schedBtn, .slist button").forEach(b => b.disabled = !on); stateButtons(); }
+// +30 only while heat is confirmed ON; OFF greyed only while heat is confirmed OFF.
+// If the state is UNKNOWN, OFF stays available so you can always send it.
+function stateButtons(){
+  $("extendBtn").hidden = !knownOn;
+  // OFF is never blocked by a pending command: it can always override an ON in flight
+  $("offBtn").disabled = pending ? pending.cmd === "off" : knownOff;
+}
 
 function send(cmd){
   if (!client || !client.connected) { setMsg("Not connected to the internet relay yet. Try again in a moment.", "bad"); return; }
+  if (pending) clearTimeout(pending.timer);        // only OFF can be sent while one is pending; it replaces it
   const id = Math.random().toString(36).slice(2, 8);
   client.publish(BASE + "/cmd", cmd + " #" + id + " @" + Math.floor(Date.now() / 1000), { qos: 1, retain: false });
-  setButtons(false);
-  setMsg("Sent. Waiting for the hangar to confirm...");
-  pending = { id, timer: setTimeout(() => {
+  pending = { id, cmd: cmd.split(" ")[0], timer: setTimeout(() => {
     pending = null; setButtons(true);
     setMsg("No confirmation after 45 seconds. The hangar box is probably offline, so the command most likely did not reach it, and it will not run later on its own. Check the status above before trying again.", "bad");
   }, 45000) };
+  setButtons(false);                               // all off, except OFF while a non-OFF command is pending
+  setMsg("Sent. Waiting for the hangar to confirm...");
 }
 
 // When the report was made. A live (non-retained) message was made just now; a stored
@@ -289,7 +298,7 @@ function esc(t){ return String(t).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt
 function render(){
   if (boxOnline === true) pill($("pBox"), "Hangar online", "ok");
   else if (boxOnline === false) pill($("pBox"), "Hangar offline", "bad");
-  if (!last) return;
+  if (!last) { knownOn = knownOff = false; stateButtons(); return; }
   const rem = remainingNow();
   const on = last.on && rem > 0;
   const st = $("status");
@@ -309,7 +318,8 @@ function render(){
     $("rem").textContent = on ? fmtHM(rem) + " left" : "";
   }
   $("seen").textContent = ref ? "Last report from hangar " + ago(ref) + " (" + clock(ref) + ")" : "Waiting for a fresh report from the hangar...";
-  $("extendBtn").textContent = on ? "+30 min" : "On 30 min";
+  knownOn = !stale && on; knownOff = !stale && !on;
+  stateButtons();
   // every field from the hangar is treated as untrusted: numbers are checked, text is escaped
   const num = v => (typeof v === "number" && isFinite(v)) ? v : null;
   const csq = num(last.csq), up = num(last.up) || 0, max = num(last.max) || 0, csqAge = num(last.csqAge);
