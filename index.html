@@ -55,6 +55,8 @@ button:disabled{opacity:.45}
 .log time{font-family:var(--mono);color:var(--muted);min-width:96px;font-variant-numeric:tabular-nums}
 .label{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0 0 8px}
 input,select{font:inherit;font-size:16px;width:100%;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--ink);margin:4px 0 12px}
+input[type=datetime-local]{-webkit-appearance:none;appearance:none;display:block;min-width:0;max-width:100%;min-height:48px;text-align:left}
+input[type=datetime-local]::-webkit-date-and-time-value{text-align:left}
 .bars{display:inline-flex;gap:2px;align-items:flex-end;height:12px;vertical-align:-1px;margin-right:4px}
 .bars i{width:3px;background:var(--line);border-radius:1px}.bars i.f{background:var(--ink)}
 footer{font-size:12px;color:var(--muted);text-align:center;display:flex;gap:12px;justify-content:center}
@@ -387,7 +389,26 @@ $("schedForm").addEventListener("submit", e => {
   if (!isFinite(p.ready) || p.start < Date.now() + 60000 || p.start > Date.now() + 7 * 86400000) { updatePreview(); return; }
   send("sched " + Math.floor(p.start / 1000) + " " + p.mins);
 });
-document.addEventListener("visibilitychange", () => { if (!document.hidden && client && !client.connected) client.reconnect(); });
+// iPhone Safari silently freezes the connection while the page is in the background or the
+// screen is locked, but still reports it as "connected". So whenever the page comes back,
+// open a fresh connection; subscribing again delivers the latest hangar report at once.
+let hiddenAt = 0, lastKick = 0;
+function freshConnect(minGapMs){
+  if (!client || Date.now() - lastKick < minGapMs) return;
+  const login = loadLogin(); if (!login) return;
+  lastKick = Date.now(); connect(login);
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { hiddenAt = Date.now(); return; }
+  if (!client) return;
+  if (!client.connected || (hiddenAt && Date.now() - hiddenAt > 3000)) freshConnect(3000);
+  hiddenAt = 0;
+});
+window.addEventListener("pageshow", e => { if (e.persisted) freshConnect(3000); });
+// Safety net: a schedule whose start is 30 s past but still listed means a report was missed
+setInterval(() => {
+  if (last && boxOnline === true && (last.scheds || []).some(x => x[0] * 1000 < Date.now() - 30000)) freshConnect(60000);
+}, 5000);
 setInterval(render, 1000);
 
 const saved = loadLogin();
