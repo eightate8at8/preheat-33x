@@ -35,6 +35,7 @@ h1{font-size:15px;letter-spacing:.04em;margin:0;color:var(--muted);font-weight:6
 .status.on{background:var(--heat-soft);border-color:var(--heat)}
 .state{font-size:44px;font-weight:800;letter-spacing:-.02em;line-height:1}
 .status.on .state{color:var(--heat)} .status.off .state{color:var(--cold)}
+.status.unk{border-style:dashed}.status.unk .state{color:var(--muted)}
 .rem{font-family:var(--mono);font-size:22px;font-variant-numeric:tabular-nums}
 .sub{font-size:13px;color:var(--muted)}
 .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
@@ -59,7 +60,11 @@ input,select{font:inherit;font-size:16px;width:100%;padding:12px;border-radius:1
 footer{font-size:12px;color:var(--muted);text-align:center;display:flex;gap:12px;justify-content:center}
 footer button{font-size:12px;padding:4px 8px;font-weight:500}
 #app{display:flex;flex-direction:column;gap:12px}
-.sched-on{font-size:15px;font-weight:600;padding:10px 12px;border-radius:10px;background:var(--heat-soft);border:1px solid var(--heat)}
+.slist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.slist li{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:10px;background:var(--heat-soft);border:1px solid var(--heat)}
+.slist .when{flex:1;min-width:0;font-size:15px;font-weight:600}
+.slist .when small{display:block;font-weight:400;color:var(--muted);font-size:13px;margin-top:2px}
+.slist button{font-size:14px;padding:8px 12px;border:1px solid var(--bad);color:var(--bad);background:var(--panel)}
 [hidden]{display:none!important}
 @media (prefers-reduced-motion:reduce){button:active{transform:none}}
 </style>
@@ -105,10 +110,8 @@ footer button{font-size:12px;padding:4px 8px;font-weight:500}
 
     <section class="panel" style="display:flex;flex-direction:column;gap:8px">
       <p class="label" style="margin:0">Schedule</p>
-      <div id="schedNow" hidden>
-        <div id="schedText" class="sched-on"></div>
-        <button class="wide" data-cmd="cancel" style="margin-top:8px">Cancel schedule</button>
-      </div>
+      <ul id="schedList" class="slist" hidden></ul>
+      <p class="sub" id="schedEmpty" style="margin:0">No schedules set.</p>
       <form id="schedForm">
         <label for="readyAt">Warm by</label>
         <input id="readyAt" type="datetime-local" required>
@@ -118,7 +121,7 @@ footer button{font-size:12px;padding:4px 8px;font-weight:500}
           <option value="240">4 hr</option><option value="300">5 hr</option><option value="360">6 hr</option>
         </select>
         <p class="sub" id="schedPreview" style="margin:0 0 10px"></p>
-        <button class="go wide" type="submit" id="schedBtn">Set schedule</button>
+        <button class="go wide" type="submit" id="schedBtn">Add schedule</button>
       </form>
     </section>
 
@@ -143,7 +146,7 @@ const BASE = "n8933x/preheat";
 const KEY = "preheat-login";
 
 const $ = id => document.getElementById(id);
-let client = null, last = null, lastAt = 0, boxOnline = null, pending = null;
+let client = null, last = null, lastAt = 0, lastRetained = true, boxOnline = null, pending = null;
 
 function loadLogin(){ try { return JSON.parse(localStorage.getItem(KEY) || "null"); } catch(e){ return null; } }
 function saveLogin(v){ try { v ? localStorage.setItem(KEY, JSON.stringify(v)) : localStorage.removeItem(KEY); } catch(e){} }
@@ -175,14 +178,28 @@ function connect(login){
       pill($("pBroker"), "EMQX signed out", "bad");
     }
   });
-  client.on("message", (topic, buf) => {
+  client.on("message", (topic, buf, packet) => {
     const s = buf.toString();
     if (topic === BASE + "/online") { boxOnline = s === "1"; render(); return; }
     if (topic === BASE + "/state") {
-      try { last = JSON.parse(s); lastAt = Date.now(); } catch(e){ return; }
+      let st;
+      try { st = JSON.parse(s); } catch(e){ return; }
+      if (!validState(st)) return;                 // ignore anything malformed
+      last = st; lastAt = Date.now(); lastRetained = !!(packet && packet.retain);
       if (pending && last.ack === pending.id) {
         clearTimeout(pending.timer);
-        setMsg("Confirmed by the hangar at " + clock(Date.now()) + ".", "ok");
+        const t = clock(Date.now());
+        const res = last.res || "ok";
+        if (res === "ok" || res === "dup") setMsg("Confirmed by the hangar at " + t + ".", "ok");
+        else if (res === "capped") setMsg("Confirmed at " + t + ", shortened to stay within the 6 hr limit for one heat session.", "ok");
+        else if (res === "expired") setMsg("The hangar got this command too late and ignored it (" + t + "). Send it again.", "bad");
+        else if (res === "bad time") setMsg("Your phone's clock looks wrong, so the hangar ignored the command (" + t + "). Check the phone's date and time.", "bad");
+        else if (res === "safety fault") setMsg("The hangar box refused: its safety timer isn't running. Power-cycle the box (" + t + ").", "bad");
+        else if (res === "save failed") setMsg("The hangar couldn't save that change, so nothing changed (" + t + "). Try again.", "bad");
+        else if (res === "list full") setMsg("Schedule list is full (8 max). Cancel one first (" + t + ").", "bad");
+        else if (res === "not found") setMsg("That schedule was already gone (" + t + ").", "ok");
+        else if (res === "clock not set") setMsg("The hangar clock isn't set yet, so the schedule wasn't saved. Try again in a minute.", "bad");
+        else setMsg("The hangar rejected the command: " + res + " (" + t + ").", "bad");
         pending = null; setButtons(true);
       }
       render();
@@ -190,8 +207,27 @@ function connect(login){
   });
 }
 
+// Accept a hangar report only if every field has the expected type and a sane range
+function validState(o){
+  const n = (v, lo, hi) => typeof v === "number" && isFinite(v) && v >= lo && v <= hi;
+  if (!o || typeof o !== "object" || typeof o.on !== "boolean") return false;
+  if (!n(o.rem, 0, 86400) || !n(o.max, 1, 1440) || !n(o.t, 0, 4102444800) || !n(o.up, 0, 1e10)) return false;
+  if (o.csq != null && !n(o.csq, 0, 99)) return false;
+  if (o.sess != null && !n(o.sess, 0, 86400)) return false;
+  if (o.csqAge != null && !n(o.csqAge, -1, 1e10)) return false;
+  if (o.clk != null && !n(o.clk, 0, 2)) return false;
+  if (o.safe != null && typeof o.safe !== "boolean") return false;
+  if (o.fw != null && typeof o.fw !== "string") return false;
+  if (o.net != null && typeof o.net !== "string") return false;
+  if (o.scheds != null && !(Array.isArray(o.scheds) && o.scheds.length <= 8 && o.scheds.every(x => Array.isArray(x) && x.length === 2 && n(x[0], 1.6e9, 4102444800) && n(x[1], 1, 360)))) return false;
+  if (o.log != null && !(Array.isArray(o.log) && o.log.every(x => typeof x === "string"))) return false;
+  if (o.ack != null && typeof o.ack !== "string") return false;
+  if (o.res != null && typeof o.res !== "string") return false;
+  return true;
+}
+
 function setMsg(t, cls){ $("cmdMsg").textContent = t; $("cmdMsg").className = "msg " + (cls || ""); }
-function setButtons(on){ document.querySelectorAll("button[data-cmd], #schedBtn").forEach(b => b.disabled = !on); }
+function setButtons(on){ document.querySelectorAll("button[data-cmd], #schedBtn, .slist button").forEach(b => b.disabled = !on); }
 
 function send(cmd){
   if (!client || !client.connected) { setMsg("Not connected to the internet relay yet. Try again in a moment.", "bad"); return; }
@@ -205,14 +241,18 @@ function send(cmd){
   }, 45000) };
 }
 
-// Board time when known, else the moment we received it
+// When the report was made. A live (non-retained) message was made just now; a stored
+// (retained) one only counts if it carries a valid board timestamp. 0 = unknown.
 function stateTimeMs(){
   if (!last) return 0;
-  return last.t > 1600000000 ? last.t * 1000 : lastAt;
+  if (!lastRetained) return lastAt;
+  return last.t > 1600000000 ? last.t * 1000 : 0;
 }
 function remainingNow(){
   if (!last || !last.on) return 0;
-  const since = (Date.now() - stateTimeMs()) / 1000;
+  const ref = stateTimeMs();
+  if (!ref) return 0;                              // unknown report time: no countdown at all
+  const since = Math.max(0, (Date.now() - ref) / 1000);
   return Math.max(0, last.rem - since);
 }
 function fmtHM(s){ s = Math.round(s); const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), ss = s%60;
@@ -226,7 +266,9 @@ function signal(csq){
   return { n, word: ["very weak","weak","fair","good","excellent"][n] };
 }
 function bars(n){ return '<span class="bars" aria-hidden="true">' + [5,7,9,12].map((h,i)=>`<i style="height:${h}px" class="${i<n?'f':''}"></i>`).join("") + "</span>"; }
-function dayTime(ms){ return new Date(ms).toLocaleString([], {weekday:"short", hour:"numeric", minute:"2-digit"}); }
+function dayTime(ms){ return new Date(ms).toLocaleString([], {weekday:"short", hour:"2-digit", minute:"2-digit", hourCycle:"h23"}); }
+function inHM(ms){ const m = Math.max(0, Math.round((ms - Date.now()) / 60000)); const h = Math.floor(m / 60);
+  return "in " + (h ? h + " hr " : "") + (m % 60) + " min"; }
 function pad(n){ return String(n).padStart(2, "0"); }
 function toLocalInput(d){ return d.getFullYear() + "-" + pad(d.getMonth()+1) + "-" + pad(d.getDate()) + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes()); }
 function schedPlan(){
@@ -239,9 +281,9 @@ function updatePreview(){
   if (!isFinite(p.ready)) { $("schedPreview").textContent = ""; return; }
   if (p.start < Date.now() + 60000) { $("schedPreview").textContent = "Too soon for that heat time. Pick a later time, or use the buttons above."; return; }
   if (p.start > Date.now() + 7 * 86400000) { $("schedPreview").textContent = "Schedules can be up to 7 days ahead."; return; }
-  $("schedPreview").textContent = "Turns on " + dayTime(p.start) + ", off at " + clock(p.ready) + ".";
+  $("schedPreview").textContent = "Turns on " + dayTime(p.start) + " (" + inHM(p.start) + "), off at " + clock(p.ready) + ".";
 }
-function clock(ms){ return new Date(ms).toLocaleTimeString([], {hour:"numeric", minute:"2-digit"}); }
+function clock(ms){ return new Date(ms).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", hourCycle:"h23"}); }
 function esc(t){ return String(t).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
 function render(){
@@ -251,31 +293,65 @@ function render(){
   const rem = remainingNow();
   const on = last.on && rem > 0;
   const st = $("status");
-  st.className = "panel status " + (on ? "on" : "off");
-  $("state").textContent = on ? "HEAT ON" : "HEAT OFF";
-  $("rem").textContent = on ? fmtHM(rem) + " left" : "";
-  $("seen").textContent = "Last report from hangar " + ago(stateTimeMs()) + " (" + clock(stateTimeMs()) + ")";
-  $("extendBtn").textContent = on ? "+30 min" : "On 30 min";
-  const sig = signal(last.csq);
-  const csqAt = (last.csqAge != null && last.csqAge >= 0) ? stateTimeMs() - last.csqAge * 1000 : 0;
-  $("health").innerHTML = bars(sig.n) + "Cell signal " + sig.word + (last.csq !== 99 ? " (" + last.csq + "/31)" : "") +
-    (csqAt ? " &middot; checked " + clock(csqAt) : "") +
-    "<br>Status updated " + clock(stateTimeMs()) +
-    "<br>Box up " + Math.floor(last.up/3600) + " hr " + Math.floor((last.up%3600)/60) + " min &middot; max run " + (last.max/60) + " hr";
-  $("fw").textContent = "fw " + (last.fw || "?");
-  if (last.sched > 0) {
-    const start = last.sched * 1000, end = start + last.schedMin * 60000;
-    $("schedText").textContent = "On " + dayTime(start) + " for " + (last.schedMin / 60) + " hr (warm by " + clock(end) + ")";
-    $("schedNow").hidden = false; $("schedBtn").textContent = "Replace schedule";
+  // Only claim a state when the hangar report is fresh and the box is online
+  const ref = stateTimeMs();
+  const age = Date.now() - ref;
+  // Claim ON/OFF only with positive evidence: hangar online, report time known,
+  // not from the future (clock mismatch), and recent.
+  const stale = boxOnline !== true || !ref || age < -60000 || age > (last.on ? 180000 : 900000);
+  if (stale) {
+    st.className = "panel status unk";
+    $("state").textContent = "UNKNOWN";
+    $("rem").textContent = last.on ? (ref ? "Last report: ON, due off " + clock(Date.now() + rem * 1000) : "Last report: ON (time unknown)") : "Last report: OFF";
   } else {
-    $("schedNow").hidden = true; $("schedBtn").textContent = "Set schedule";
+    st.className = "panel status " + (on ? "on" : "off");
+    $("state").textContent = on ? "HEAT ON" : "HEAT OFF";
+    $("rem").textContent = on ? fmtHM(rem) + " left" : "";
   }
+  $("seen").textContent = ref ? "Last report from hangar " + ago(ref) + " (" + clock(ref) + ")" : "Waiting for a fresh report from the hangar...";
+  $("extendBtn").textContent = on ? "+30 min" : "On 30 min";
+  // every field from the hangar is treated as untrusted: numbers are checked, text is escaped
+  const num = v => (typeof v === "number" && isFinite(v)) ? v : null;
+  const csq = num(last.csq), up = num(last.up) || 0, max = num(last.max) || 0, csqAge = num(last.csqAge);
+  const sig = signal(csq);
+  const csqAt = (ref && csqAge != null && csqAge >= 0) ? ref - csqAge * 1000 : 0;
+  $("health").innerHTML = bars(sig.n) + "Cell signal " + esc(sig.word) + (csq !== null && csq !== 99 ? " (" + csq + "/31)" : "") +
+    (csqAt ? " &middot; checked " + esc(clock(csqAt)) : "") +
+    "<br>Status updated " + (ref ? esc(clock(ref)) : "unknown") +
+    "<br>Box up " + Math.floor(up/3600) + " hr " + Math.floor((up%3600)/60) + " min &middot; max run " + (max/60) + " hr";
+  $("fw").textContent = "fw " + (last.fw || "?");
+  renderSchedules(last.scheds || []);
   const items = (last.log || []).map(l => {
     const i = l.indexOf("|"); const t = +l.slice(0, i); const m = l.slice(i+1);
-    const when = t > 1600000000 ? new Date(t*1000).toLocaleString([], {month:"short", day:"numeric", hour:"numeric", minute:"2-digit"}) : "--";
+    const when = t > 1600000000 ? new Date(t*1000).toLocaleString([], {month:"short", day:"numeric", hour:"2-digit", minute:"2-digit", hourCycle:"h23"}) : "--";
     return `<li><time>${esc(when)}</time><span>${esc(m)}</span></li>`;
   });
   $("log").innerHTML = items.length ? items.join("") : '<li><span class="sub">Nothing yet</span></li>';
+}
+
+// Schedule list: one row per schedule, each with its own Cancel button
+let schedKey = "";
+function renderSchedules(list){
+  const key = JSON.stringify(list) + "|" + Math.floor(Date.now() / 60000);   // redraw at most once a minute
+  if (key === schedKey) return;
+  schedKey = key;
+  const ul = $("schedList");
+  ul.textContent = "";
+  for (const [s, m] of list) {
+    const start = s * 1000, end = start + m * 60000;
+    const li = document.createElement("li");
+    const w = document.createElement("div"); w.className = "when";
+    w.textContent = dayTime(start) + " → " + clock(end) + " (" + (m / 60) + " hr)";
+    const sm = document.createElement("small"); sm.textContent = "Turns on " + inHM(start);
+    w.appendChild(sm);
+    const b = document.createElement("button"); b.type = "button"; b.textContent = "Cancel";
+    b.disabled = !!pending;
+    b.addEventListener("click", () => send("cancel " + s));
+    li.append(w, b); ul.appendChild(li);
+  }
+  ul.hidden = list.length === 0;
+  $("schedEmpty").hidden = list.length !== 0;
+  $("schedBtn").textContent = list.length >= 8 ? "List full (8 max)" : "Add schedule";
 }
 
 document.querySelectorAll("button[data-cmd]").forEach(b => b.addEventListener("click", () => send(b.dataset.cmd)));
